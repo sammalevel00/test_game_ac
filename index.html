@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Florentine Rooftops - Prototype</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #374151; /* Darker background */
+            color: #f3f4f6; /* Light text */
+            display: flex;
+            flex-direction: column; /* Stack title, canvas, text */
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden; /* Prevent scrollbars */
+        }
+        /* Style for the game canvas */
+        canvas {
+            background-color: #1e293b; /* Dark blue-gray canvas background */
+            display: block; /* Remove extra space below canvas */
+            border: 2px solid #9ca3af; /* Gray border */
+            border-radius: 0.5rem; /* Rounded corners */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            /* Fixed size for simplicity, adjust as needed */
+           /* width: 800px; */
+           /* height: 400px; */
+           max-width: 90vw; /* Limit width on large screens */
+           max-height: 70vh; /* Limit height */
+           aspect-ratio: 2 / 1; /* Maintain 2:1 aspect ratio */
+
+        }
+        /* Style for the story text area */
+        #story-display {
+            margin-top: 1rem;
+            padding: 0.75rem;
+            background-color: rgba(0, 0, 0, 0.5); /* Semi-transparent black */
+            border-radius: 0.5rem;
+            max-width: 800px; /* Match canvas max width */
+            width: 90vw; /* Responsive width */
+            text-align: center;
+            min-height: 50px; /* Ensure space for text */
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+         /* Style for the title */
+        h1 {
+            color: #e5e7eb; /* Lighter gray for title */
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body class="bg-gray-800 text-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <h1 class="text-2xl font-bold mb-4">Florentine Rooftops</h1>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="story-display" class="mt-4 p-3 bg-black bg-opacity-50 rounded-lg text-center w-full max-w-3xl">
+        Loading game... Use Arrow Keys to move.
+    </div>
+
+    <script>
+        // --- Canvas and Context Setup ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const storyDisplay = document.getElementById('story-display');
+
+        // --- Game Configuration ---
+        let canvasWidth = 800; // Base width
+        let canvasHeight = 400; // Base height
+
+        // --- Game State ---
+        let keys = {}; // Object to track pressed keys
+        let gravity = 0.5;
+        let friction = 0.8; // Slow down horizontal movement
+        let gameStarted = false;
+        let currentStoryMessage = "Florence, 1488. You are Alessio Vieri, apprentice cartographer. Press Enter to begin your escape.";
+
+        // --- Player Object ---
+        const player = {
+            x: 50,
+            y: canvasHeight - 70, // Start on the ground initially
+            width: 20, // Simple rectangle for pixel art feel
+            height: 40,
+            color: '#e11d48', // A distinct color (rose)
+            speed: 4,
+            velX: 0,
+            velY: 0,
+            jumping: false,
+            grounded: false
+        };
+
+        // --- Environment Objects (Platforms) ---
+        // Simple representation: { x, y, width, height, color }
+        const platforms = [
+            // Ground platform
+            { x: 0, y: canvasHeight - 20, width: canvasWidth, height: 20, color: '#6b7280' }, // Gray ground
+            // Some example platforms
+            { x: 150, y: canvasHeight - 80, width: 100, height: 15, color: '#a16207' }, // Brownish platform
+            { x: 350, y: canvasHeight - 140, width: 120, height: 15, color: '#a16207' },
+            { x: 600, y: canvasHeight - 100, width: 80, height: 15, color: '#a16207' },
+            // A higher goal platform
+             { x: canvasWidth - 100, y: 100, width: 80, height: 15, color: '#be123c' } // Target platform (darker red)
+        ];
+
+        // --- Input Handling ---
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+             // Start game on Enter if not started
+             if (!gameStarted && e.code === 'Enter') {
+                gameStarted = true;
+                currentStoryMessage = "Your father has been arrested! Flee the workshop! Reach the far rooftop!";
+                gameLoop(); // Start the main game loop
+            }
+        });
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+
+        // --- Collision Detection ---
+        function checkCollision(objA, objB) {
+            return objA.x < objB.x + objB.width &&
+                   objA.x + objA.width > objB.x &&
+                   objA.y < objB.y + objB.height &&
+                   objA.y + objA.height > objB.y;
+        }
+
+        // --- Resize Canvas ---
+        function resizeCanvas() {
+            // Get container size (body or a dedicated div)
+            const containerWidth = window.innerWidth * 0.9; // 90% of viewport width
+            const containerHeight = window.innerHeight * 0.7; // 70% of viewport height
+
+            // Calculate aspect ratio
+            const aspectRatio = 2 / 1; // Desired aspect ratio (width / height)
+
+            let newWidth = containerWidth;
+            let newHeight = newWidth / aspectRatio;
+
+            // If height is too large for container, scale based on height instead
+            if (newHeight > containerHeight) {
+                newHeight = containerHeight;
+                newWidth = newHeight * aspectRatio;
+            }
+
+            // Update canvas dimensions
+            canvas.width = newWidth;
+            canvas.height = newHeight;
+
+            // Update internal dimensions used for drawing/physics
+            canvasWidth = canvas.width;
+            canvasHeight = canvas.height;
+
+             // Recalculate platform positions based on new dimensions (simple scaling)
+             // NOTE: This simple scaling might distort level design. A better approach
+             // would involve relative positioning or recalculating layout logic.
+             const scaleX = canvas.width / 800; // Ratio based on original base width
+             const scaleY = canvas.height / 400; // Ratio based on original base height
+
+             platforms.forEach((p, index) => {
+                 if (index === 0) { // Ground platform always spans width
+                     p.x = 0;
+                     p.y = canvas.height - 20 * scaleY;
+                     p.width = canvas.width;
+                     p.height = 20 * scaleY;
+                 } else if (index === platforms.length -1) { // Target platform relative to right edge
+                     p.x = canvas.width - 100 * scaleX;
+                     p.y = 100 * scaleY; // Keep relative y position
+                     p.width = 80 * scaleX;
+                     p.height = 15 * scaleY;
+                 }
+                 else { // Scale other platforms
+                     // This is a basic scaling, might need refinement for complex levels
+                     p.x = p.originalX * scaleX; // Requires storing original positions
+                     p.y = p.originalY * scaleY;
+                     p.width = p.originalWidth * scaleX;
+                     p.height = p.originalHeight * scaleY;
+                 }
+             });
+             // Also rescale player position if needed (e.g., relative to start)
+             // player.x = player.originalX * scaleX;
+             // player.y = canvas.height - (400 - player.originalY) * scaleY; // Adjust y from bottom
+
+            // Initial draw after resize
+            if (gameStarted) {
+                draw();
+            } else {
+                drawInitialMessage(); // Redraw initial message if game hasn't started
+            }
+        }
+
+        // Store original platform dimensions for scaling
+        platforms.forEach(p => {
+            p.originalX = p.x;
+            p.originalY = p.y;
+            p.originalWidth = p.width;
+            p.originalHeight = p.height;
+        });
+         // Store original player position
+        // player.originalX = player.x;
+        // player.originalY = player.y;
+
+
+        // --- Update Function (Physics and Logic) ---
+        function update() {
+            // Player Movement
+            if (keys['ArrowLeft'] || keys['KeyA']) {
+                player.velX = -player.speed;
+            } else if (keys['ArrowRight'] || keys['KeyD']) {
+                player.velX = player.speed;
+            } else {
+                player.velX *= friction; // Apply friction if no horizontal key is pressed
+            }
+
+            // Jumping
+            if ((keys['ArrowUp'] || keys['KeyW'] || keys['Space']) && !player.jumping && player.grounded) {
+                player.velY = -10; // Jump force
+                player.jumping = true;
+                player.grounded = false;
+            }
+
+            // Apply Gravity
+            player.velY += gravity;
+
+            // Apply Velocities
+            player.x += player.velX;
+            player.y += player.velY;
+
+            // Collision Detection and Resolution (Basic)
+            player.grounded = false; // Assume not grounded until collision check
+            platforms.forEach(platform => {
+                const collisionDirection = checkPlatformCollision(player, platform);
+
+                if (collisionDirection === "bottom" && player.velY >= 0) { // Landing on top
+                    player.grounded = true;
+                    player.jumping = false;
+                    player.y = platform.y - player.height; // Correct position
+                    player.velY = 0;
+                } else if (collisionDirection === "top" && player.velY < 0) { // Hitting underside
+                    player.y = platform.y + platform.height;
+                    player.velY = 0; // Stop upward movement
+                } else if (collisionDirection === "left" && player.velX > 0) { // Hitting left side
+                    player.x = platform.x - player.width;
+                    player.velX = 0;
+                } else if (collisionDirection === "right" && player.velX < 0) { // Hitting right side
+                    player.x = platform.x + platform.width;
+                    player.velX = 0;
+                }
+            });
+
+             // Keep player within canvas bounds (horizontal)
+            if (player.x < 0) {
+                player.x = 0;
+                player.velX = 0;
+            }
+            if (player.x + player.width > canvasWidth) {
+                player.x = canvasWidth - player.width;
+                player.velX = 0;
+            }
+             // Check if player fell off screen (basic reset)
+             if (player.y > canvasHeight) {
+                 // Reset player position (or implement game over)
+                 player.x = 50 * (canvasWidth / 800); // Scale start pos
+                 player.y = canvasHeight - 70 * (canvasHeight / 400);
+                 player.velX = 0;
+                 player.velY = 0;
+                 player.jumping = false;
+                 currentStoryMessage = "Careful! Don't fall. Try again.";
+             }
+
+             // Check for win condition (reaching the target platform)
+             const targetPlatform = platforms[platforms.length - 1];
+             if (checkCollision(player, targetPlatform)) {
+                 // A simple win state
+                 currentStoryMessage = "You reached the rooftop! Escape continues... (To be continued)";
+                 // Potentially stop the game loop or move to a new level/state here
+                 // For now, just display message
+                 // requestAnimationFrame not called again, effectively pausing
+                 draw(); // Draw final state
+                 gameStarted = false; // Prevent restart via keys in this state
+                 return; // Stop update loop
+             }
+
+        }
+
+        // More precise platform collision check (returns collision side relative to player)
+        function checkPlatformCollision(playerObj, platformObj) {
+            // Calculate the vector from player center to platform center
+            let vX = (playerObj.x + playerObj.width / 2) - (platformObj.x + platformObj.width / 2);
+            let vY = (playerObj.y + playerObj.height / 2) - (platformObj.y + platformObj.height / 2);
+
+            // Calculate half-widths and half-heights
+            let hWidths = (playerObj.width / 2) + (platformObj.width / 2);
+            let hHeights = (playerObj.height / 2) + (platformObj.height / 2);
+            let collisionDir = null;
+
+            // If collision detected
+            if (Math.abs(vX) < hWidths && Math.abs(vY) < hHeights) {
+                // Figure out the offset vector
+                let oX = hWidths - Math.abs(vX);
+                let oY = hHeights - Math.abs(vY);
+
+                // Determine collision side based on smallest offset
+                if (oX >= oY) {
+                    if (vY > 0) {
+                        collisionDir = "top"; // Player hit platform underside
+                    } else {
+                        collisionDir = "bottom"; // Player landed on top
+                    }
+                } else {
+                    if (vX > 0) {
+                        collisionDir = "left"; // Player hit platform's left side
+                    } else {
+                        collisionDir = "right"; // Player hit platform's right side
+                    }
+                }
+            }
+            return collisionDir;
+        }
+
+
+        // --- Drawing Function ---
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+
+            // Draw background elements (optional, e.g., distant buildings)
+            // ctx.fillStyle = '#2c3e50'; // Example: Darker blue for sky
+            // ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+            // Draw platforms
+            platforms.forEach(platform => {
+                ctx.fillStyle = platform.color;
+                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+            });
+
+            // Draw player
+            ctx.fillStyle = player.color;
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            // Update story display
+            storyDisplay.textContent = currentStoryMessage;
+        }
+
+         // --- Draw Initial Message ---
+         function drawInitialMessage() {
+            ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+            // Maybe draw a simple static scene
+             platforms.forEach(platform => {
+                ctx.fillStyle = platform.color;
+                ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
+            });
+             ctx.fillStyle = player.color;
+             ctx.fillRect(player.x, player.y, player.width, player.height);
+
+            storyDisplay.textContent = currentStoryMessage;
+         }
+
+
+        // --- Game Loop ---
+        function gameLoop() {
+            if (!gameStarted) return; // Stop loop if game ended or hasn't started
+
+            update(); // Update game state (physics, input)
+            draw();   // Redraw the scene
+
+            requestAnimationFrame(gameLoop); // Request the next frame
+        }
+
+        // --- Initialization ---
+        window.addEventListener('resize', resizeCanvas);
+
+        // Initial setup call
+        resizeCanvas(); // Size canvas correctly on load
+        drawInitialMessage(); // Show the starting message
+
+    </script>
+
+</body>
+</html>
